@@ -9,6 +9,8 @@ end
 const dicom_samples = Dict(
     "CT_Explicit_Little.dcm" =>
         "https://github.com/notZaki/DICOMSamples/raw/master/DICOMSamples/CT_Explicit_Little.dcm",
+    "CT_JPEG70.dcm" =>
+        "https://github.com/notZaki/DICOMSamples/raw/master/DICOMSamples/CT_JPEG70.dcm",
     "CT_Implicit_Little_Headless_Retired.dcm" =>
         "https://github.com/notZaki/DICOMSamples/raw/master/DICOMSamples/CT_Implicit_Little_Headless_Retired.dcm",
     "MG_Explicit_Little.dcm" =>
@@ -37,6 +39,12 @@ function download_dicom(filename; folder = data_folder)
     return filepath
 end
 
+@testset "Download Test Data" begin
+    for filename in keys(dicom_samples)
+        download_dicom(filename)
+    end
+end
+
 @testset "Reading DICOM" begin
     fileMR = download_dicom("MR_Implicit_Little.dcm")
     fileCT = download_dicom("CT_Explicit_Little.dcm")
@@ -45,7 +53,7 @@ end
     dcmMR_partial = dcm_parse(fileMR, max_group = 0x0008)
     dcmMR = dcm_parse(fileMR)
     dcmCT = dcm_parse(fileCT)
-    (dcmMG, vrMG) = dcm_parse(fileMG, return_vr = true)
+    dcmMG = dcm_parse(fileMG)
 
     @test dcmMR_partial[(0x0008, 0x0060)] == "MR"
     @test haskey(dcmMR_partial, (0x7FE0, 0x0010)) == false
@@ -61,6 +69,9 @@ end
     # Test lookup-by-fieldname
     @test dcmMR[(0x0008, 0x0060)] == lookup(dcmMR, "Modality")
     @test dcmMR[(0x7FE0, 0x0010)] == lookup(dcmMR, "Pixel Data")
+
+    # test reading of SQ
+    @test isa(dcmMG.AnatomicRegionSequence, Vector{DICOM.DICOMData})
 end
 
 @testset "Writing DICOM" begin
@@ -70,7 +81,7 @@ end
 
     dcmMR = dcm_parse(fileMR)
     dcmCT = dcm_parse(fileCT)
-    (dcmMG, vrMG) = dcm_parse(fileMG, return_vr = true)
+    dcmMG = dcm_parse(fileMG)
 
     # Define two output files for each dcm - data will be saved, reloaded, then saved again
     outMR1 = joinpath(data_folder, "outMR1.dcm")
@@ -84,18 +95,18 @@ end
     # Write DICOM files
     dcm_write(outMR1, dcmMR)
     dcm_write(outCT1, dcmCT)
-    dcm_write(outMG1, dcmMG; aux_vr = vrMG)
+    dcm_write(outMG1, dcmMG; aux_vr = dcmMG.vr)
     open(outMG1b, "w") do io
-        dcm_write(io, dcmMG; aux_vr = vrMG)
+        dcm_write(io, dcmMG; aux_vr = dcmMG.vr)
     end
     # Reading DICOM files which were written from previous step
     dcmMR1 = dcm_parse(outMR1)
     dcmCT1 = dcm_parse(outCT1)
-    (dcmMG1, vrMG1) = dcm_parse(outMG1, return_vr = true)
+    dcmMG1 = dcm_parse(outMG1)
     # Write DICOM files which were re-read from previous step
     dcm_write(outMR2, dcmMR1)
     dcm_write(outCT2, dcmCT1)
-    dcm_write(outMG2, dcmMG1; aux_vr = vrMG1)
+    dcm_write(outMG2, dcmMG1; aux_vr = dcmMG1.vr)
 
     # Test consistency of written files after the write-read-write cycle
     @test read(outMR1) == read(outMR2)
@@ -140,9 +151,9 @@ end
     )
     dcmCTa = dcm_parse(fileCT, preamble = false, aux_vr = dVR_CTa)
     # 2b. Read with a master VR which skips elements
-    # Here we skip any element where lookup_vr() fails
-    # And we also force (0x0018,0x1170) to be read as float instead of integer
-    dVR_CTb = Dict((0x0000, 0x0000) => "", (0x0018, 0x1170) => "DS")
+    # Here we skip the element (0x0028, 0x0040)
+    # and we also force (0x0018,0x1170) to be read as float instead of integer
+    dVR_CTb = Dict((0x0028, 0x0040) => "", (0x0018, 0x1170) => "DS")
     dcmCTb = dcm_parse(fileCT, preamble = false, aux_vr = dVR_CTb)
     @test dcmCTa[(0x0008, 0x0060)] == "CT"
     @test dcmCTb[(0x0008, 0x0060)] == "CT"
@@ -180,13 +191,53 @@ end
     @test size(dcmDX[(0x7fe0, 0x0010)]) == (1590, 2593, 3)
 end
 
+@testset "Test Compressed" begin
+    fileCT = download_dicom("CT_JPEG70.dcm")
+    dcm_parse(fileCT)
+end
+
+@testset "DICOMData API" begin
+    dcmFile = download_dicom("MR_Implicit_Little.dcm")
+    dcm = dcm_parse(dcmFile)
+    @test length(keys(dcm)) == 87
+    @test haskey(dcm, "PatientName")
+    @test haskey(dcm, :PatientName)
+    @test haskey(dcm, (0x0010, 0x0010))
+    @test dcm.PatientName ===
+          dcm[:PatientName] ===
+          dcm["PatientName"] ===
+          dcm[(0x0010, 0x0010)] ===
+          "Anonymized"
+    dcm.PatientName = "Tom"
+    @test dcm.PatientName == "Tom"
+    dcm[:PatientName] = "Dick"
+    @test dcm.PatientName == "Dick"
+    dcm["PatientName"] = "Harry"
+    @test dcm.PatientName == "Harry"
+    dcm[(0x0010, 0x0010)] = "Anonymized"
+    @test dcm.PatientName ===
+          dcm[:PatientName] ===
+          dcm["PatientName"] ===
+          dcm[(0x0010, 0x0010)] ===
+          "Anonymized"
+    @test length(propertynames(dcm)) == 85
+end
+
+@testset "Parse entire folder" begin
+    # Following files have missing preamble and won't be parsed
+    # ["OT_Implicit_Little_Headless.dcm", "CT_Implicit_Little_Headless_Retired.dcm"]
+    dcms = dcmdir_parse(data_folder)
+    @test issorted([dcm[tag"Instance Number"] for dcm in dcms])
+    @test length(dcms) == length(readdir(data_folder)) - 2 # -2 because of note above
+end
+
 @testset "Test tag macro" begin
-    @test tag"Modality" === (0x0008, 0x0060) === DICOM.fieldname_dict["Modality"]
+    @test tag"Modality" === (0x0008, 0x0060) === DICOM.fieldname_dict[:Modality]
     @test tag"Shutter Overlay Group" ===
           (0x0018, 0x1623) ===
-          DICOM.fieldname_dict["Shutter Overlay Group"]
+          DICOM.fieldname_dict[:ShutterOverlayGroup]
     @test tag"Histogram Last Bin Value" === (0x0060, 0x3006)
-    DICOM.fieldname_dict["Histogram Last Bin Value"]
+    DICOM.fieldname_dict[:HistogramLastBinValue]
 
     # test that compile time error is thrown if tag does not exist
     @test macroexpand(Main, :(tag"Modality")) === (0x0008, 0x0060)

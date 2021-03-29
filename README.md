@@ -1,9 +1,9 @@
 # DICOM.jl
 
-Julia interface for parsing/writing DICOM files
+Julia interface for parsing/writing DICOM (Digital Imaging and Communications in Medicine) files
 
-[![Build Status](https://travis-ci.org/JuliaIO/DICOM.jl.svg?branch=master)](https://travis-ci.org/JuliaIO/DICOM.jl)
-[![Code Coverage](https://codecov.io/gh/JuliaIO/DICOM.jl/branch/master/graphs/badge.svg?)](https://codecov.io/gh/JuliaIO/DICOM.jl/branch/master)
+[![Build Status](https://github.com/JuliaHealth/DICOM.jl/workflows/CI/badge.svg)](https://github.com/JuliaHealth/DICOM.jl/actions)
+[![Coverage](https://codecov.io/gh/JuliaHealth/DICOM.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/JuliaHealth/DICOM.jl)
 
 ## Usage
 
@@ -27,7 +27,12 @@ Read a DICOM file by
 julia> dcm_data = dcm_parse("path/to/dicom/file")
 ```
 The data in `dcm_data` is structured as a dictionary, and individual DICOM elements can be accessed by their hex tag.
-For example, the hex tag of "Pixel Data" is `7FE0,0010`, and it can be accessed in Julia by `dcm_data[(0x7FE0,0x0010)]` or by `dcm_data[tag"Pixel Data"]`.
+For example, the hex tag of "Pixel Data" is `7FE0,0010`, and it can be accessed in Julia by `dcm_data[(0x7FE0,0x0010)]` or by `dcm_data[tag"PixelData"]`.
+
+Multiple DICOM files in a folder can be read by
+```
+julia> dcm_data_array = dcmdir_parse("path/to/dicom/folder")
+```
 
 **Writing Data**
 
@@ -50,6 +55,7 @@ DICOM files use either explicit or implicit value representation (VR). For impli
     dcm_data = dcm_parse("path/to/dicom/file", aux_vr = my_vrs)
     ```
     Now `dcm_data[(0x0020,0x0013)]` will return a float instead of an integer.
+    + The parsed VRs are stored in `dcm_data.vr`
 
 - It is possible to skip an element by setting its VR to `""`.
     For example, we can skip reading the Instance Number by
@@ -70,9 +76,3 @@ DICOM files use either explicit or implicit value representation (VR). For impli
     julia> dcm_write("path/to/output/file", dcm_data, aux_vr = user_defined_vr)
     ```
     where `user_defined_vr` is a dictionary which maps the hex tag to the VR.
-
-- A dictionary of VRs can be obtained by passing `return_vr = true` as an argument to `dcm_parse()`, e.g.:
-    ```
-    julia> (dcm_data, dcm_vr) = dcm_parse("path/to/dicom/file", return_vr = true)
-    ```
-    and `dcm_vr` will contain a dictionary of VRs for the elements in `dcm_data`
